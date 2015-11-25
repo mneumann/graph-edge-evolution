@@ -1,0 +1,6 @@
+[package]
+name = "graph_edge_evolution"
+version = "0.1.0"
+authors = ["Michael Neumann <mneumann@ntecs.de>"]
+
+[dependencies]
