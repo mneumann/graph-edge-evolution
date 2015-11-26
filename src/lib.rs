@@ -51,8 +51,8 @@ pub struct GraphBuilder<W: Debug + Default + Clone, N: Debug + Default + Clone> 
     current_edge: usize,
 }
 
-#[derive(Debug)]
-pub enum EdgeOperation<W, N> {
+#[derive(Debug, Clone)]
+pub enum EdgeOperation<W:Clone, N:Clone> {
     IncreaseWeight {
         weight: W,
     },
@@ -104,6 +104,7 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         }
     }
 
+    // XXX: Node function
     pub fn to_edge_list(&self) -> Vec<Vec<(usize, W)>> {
         self.nodes
             .iter()
