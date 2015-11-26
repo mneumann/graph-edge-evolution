@@ -7,43 +7,43 @@ use std::ops::AddAssign;
 use std::ops::Neg;
 
 #[derive(Debug, Clone)]
-struct Edge<T: Debug + Clone> {
+struct Edge<W: Debug + Clone> {
     src: usize,
     dst: usize,
-    weight: T,
+    weight: W,
 }
 
-impl<T:Debug+Clone+Default> Edge<T> {
-    fn new(src: usize, dst: usize) -> Edge<T> {
+impl<W:Debug+Clone+Default> Edge<W> {
+    fn new(src: usize, dst: usize) -> Edge<W> {
         Edge {
             src: src,
             dst: dst,
-            weight: T::default(),
+            weight: W::default(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-struct Node<T: Clone + Default + Debug> {
+struct Node<N: Clone + Default + Debug> {
     in_edges: Vec<usize>,
     out_edges: Vec<usize>,
-    node_fn: T,
+    node_fn: N,
 }
 
-impl<T:Default+Clone+Debug> Node<T> {
-    fn new() -> Node<T> {
+impl<N:Default+Clone+Debug> Node<N> {
+    fn new() -> Node<N> {
         Node {
             in_edges: Vec::new(),
             out_edges: Vec::new(),
-            node_fn: T::default(),
+            node_fn: N::default(),
         }
     }
 }
 
 #[derive(Debug)]
-pub struct GraphBuilder<T: Debug + Default + Clone, N: Debug + Default + Clone> {
+pub struct GraphBuilder<W: Debug + Default + Clone, N: Debug + Default + Clone> {
     /// The current edge is always the edge on top of the stack.
-    edges: BTreeMap<usize, Edge<T>>,
+    edges: BTreeMap<usize, Edge<W>>,
     nodes: Vec<Node<N>>,
     next_edge_id: usize,
     current_from_node: usize,
@@ -52,24 +52,24 @@ pub struct GraphBuilder<T: Debug + Default + Clone, N: Debug + Default + Clone> 
 }
 
 #[derive(Debug)]
-pub enum EdgeOperation<T, N> {
+pub enum EdgeOperation<W, N> {
     IncreaseWeight {
-        weight: T,
+        weight: W,
     },
     DecreaseWeight {
-        weight: T,
+        weight: W,
     },
     Duplicate {
-        weight: T,
+        weight: W,
     },
     Split {
-        weight: T,
+        weight: W,
     },
     Loop {
-        weight: T,
+        weight: W,
     },
     Output {
-        weight: T,
+        weight: W,
     },
     Merge {
         n: u32,
@@ -90,8 +90,8 @@ pub enum EdgeOperation<T, N> {
 // We have to delete an edge if the (from, to) nodes would otherwise
 // not much up with the edge in case of backtracking.
 
-impl<T:Debug+Default+Clone+AddAssign<T>, N:Debug+Default+Clone> GraphBuilder<T, N> {
-    pub fn new() -> GraphBuilder<T, N> {
+impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, N> {
+    pub fn new() -> GraphBuilder<W, N> {
         // we begin with an empty node and a virtual edge.
 
         GraphBuilder {
@@ -104,7 +104,7 @@ impl<T:Debug+Default+Clone+AddAssign<T>, N:Debug+Default+Clone> GraphBuilder<T, 
         }
     }
 
-    pub fn to_edge_list(&self) -> Vec<Vec<(usize, T)>> {
+    pub fn to_edge_list(&self) -> Vec<Vec<(usize, W)>> {
         self.nodes
             .iter()
             .map(|n| {
@@ -119,8 +119,8 @@ impl<T:Debug+Default+Clone+AddAssign<T>, N:Debug+Default+Clone> GraphBuilder<T, 
             .collect()
     }
 
-    pub fn apply_operation(&mut self, op: EdgeOperation<T, N>)
-        where T: Neg<Output = T>
+    pub fn apply_operation(&mut self, op: EdgeOperation<W, N>)
+        where W: Neg<Output = W>
     {
         match op {
             EdgeOperation::IncreaseWeight  {weight: w} => self.update_edge_weight(w),
@@ -139,7 +139,7 @@ impl<T:Debug+Default+Clone+AddAssign<T>, N:Debug+Default+Clone> GraphBuilder<T, 
 
     /// creates an output node and connects it to the from neuron.
     /// does not change the link
-    fn output(&mut self, weight: T) {
+    fn output(&mut self, weight: W) {
         let output_node = self.new_node();
         let from = self.current_from_node;
         let edge_idx = self.create_new_edge_with_weight(from, output_node, weight);
@@ -154,7 +154,7 @@ impl<T:Debug+Default+Clone+AddAssign<T>, N:Debug+Default+Clone> GraphBuilder<T, 
     /// decrease-weight or increase-weight, depending on the sign of the weight.
     /// Updates the weight of the current edge, or in case of a virtual edge,
     /// creates a new edge with that weight.
-    fn update_edge_weight(&mut self, weight: T) {
+    fn update_edge_weight(&mut self, weight: W) {
         let (from, to) = (self.current_from_node, self.current_to_node);
         let edge_idx = self.current_edge;
 
@@ -174,7 +174,7 @@ impl<T:Debug+Default+Clone+AddAssign<T>, N:Debug+Default+Clone> GraphBuilder<T, 
     }
 
     /// Adds a loop to the current edge's target neuron.
-    fn add_self_loop(&mut self, weight: T) {
+    fn add_self_loop(&mut self, weight: W) {
         let to = self.current_to_node;
         let edge_idx = self.create_new_edge_with_weight(to, to, weight);
         self.insert_edge(edge_idx);
@@ -280,7 +280,7 @@ impl<T:Debug+Default+Clone+AddAssign<T>, N:Debug+Default+Clone> GraphBuilder<T, 
     /// with ```N -> B``` being the next current edge.
     /// There is no A -> B link after this operation, that's why we delete the edge,
     /// so that backtracking cannot later make use of it.
-    fn split(&mut self, weight: T) {
+    fn split(&mut self, weight: W) {
         let (from, to) = (self.current_from_node, self.current_to_node);
         let edge_idx = self.current_edge;
 
@@ -295,7 +295,7 @@ impl<T:Debug+Default+Clone+AddAssign<T>, N:Debug+Default+Clone> GraphBuilder<T, 
         // then, insert two new edges.
         let first_edge = self.create_new_edge_with_weight(from,
                                                           middle_node,
-                                                          orig_weight.unwrap_or(T::default())); // XXX: default?
+                                                          orig_weight.unwrap_or(W::default())); // XXX: default?
         let second_edge = self.create_new_edge_with_weight(middle_node, to, weight);
 
         self.insert_or_update_edge(did_exist.map(|_| edge_idx),
@@ -329,7 +329,7 @@ impl<T:Debug+Default+Clone+AddAssign<T>, N:Debug+Default+Clone> GraphBuilder<T, 
         // add the new edge
         let new_edge = self.create_new_edge_with_weight(new_from,
                                                         to,
-                                                        orig_weight.unwrap_or(T::default()));
+                                                        orig_weight.unwrap_or(W::default()));
 
         if let Some(_) = did_exist {
             // disconnect original from node
@@ -357,7 +357,7 @@ impl<T:Debug+Default+Clone+AddAssign<T>, N:Debug+Default+Clone> GraphBuilder<T, 
     }
 
     /// Duplicates the current edge
-    fn duplicate(&mut self, weight: T) {
+    fn duplicate(&mut self, weight: W) {
         let (from, to) = (self.current_from_node, self.current_to_node);
         let edge_id = self.create_new_edge_with_weight(from, to, weight);
 
@@ -377,7 +377,7 @@ impl<T:Debug+Default+Clone+AddAssign<T>, N:Debug+Default+Clone> GraphBuilder<T, 
 
         let weight = match current_edge {
             Some(ref c) => c.weight.clone(),
-            None => T::default(), // virtual?
+            None => W::default(), // virtual?
         };
 
         if let Some(e) = current_edge {
@@ -465,7 +465,7 @@ impl<T:Debug+Default+Clone+AddAssign<T>, N:Debug+Default+Clone> GraphBuilder<T, 
         self.nodes[edge.dst].in_edges.push(edge_idx);
     }
 
-    fn create_new_edge_with_weight(&mut self, from: usize, to: usize, weight: T) -> usize {
+    fn create_new_edge_with_weight(&mut self, from: usize, to: usize, weight: W) -> usize {
         let edge_id = self.next_edge_id;
 
         // self.nodes[from].out_edges.push(edge_id);
