@@ -1,6 +1,9 @@
 #![feature(augmented_assignments)]
 #![feature(op_assign_traits)]
 
+#[macro_use]
+extern crate log;
+
 use std::fmt::Debug;
 use std::collections::BTreeMap;
 use std::ops::AddAssign;
@@ -369,12 +372,12 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
 
     /// Reverses the current edge
     fn reverse(&mut self) {
-        println!("{:?}", self);
+        debug!("{:?}", self);
         let (from, to) = (self.current_from_node, self.current_to_node);
         let old_idx = self.current_edge;
         let current_edge = self.edges.remove(&old_idx);
 
-        println!("{:?}", current_edge);
+        debug!("{:?}", current_edge);
 
         let weight = match current_edge {
             Some(ref c) => c.weight.clone(),
@@ -405,7 +408,7 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
                              to: usize,
                              new_out_edge: usize,
                              new_in_edge: usize) {
-        println!("insert_or_update_edge(old_edge={:?},from={},to={},new_out_edge={},\
+        debug!("insert_or_update_edge(old_edge={:?},from={},to={},new_out_edge={},\
                   new_in_edge={})",
                  old_edge,
                  from,
@@ -429,7 +432,7 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
                     to: usize,
                     new_out_edge: usize,
                     new_in_edge: usize) {
-        println!("replace_edge(old_id={},from={},to={},new_out_edge={},new_in_edge={})",
+        debug!("replace_edge(old_id={},from={},to={},new_out_edge={},new_in_edge={})",
                  old_id,
                  from,
                  to,
