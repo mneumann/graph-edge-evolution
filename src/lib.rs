@@ -10,6 +10,47 @@ use std::ops::AddAssign;
 use std::ops::Neg;
 
 #[derive(Debug, Clone)]
+pub enum EdgeOperation<W: Clone, N: Clone> {
+    IncreaseWeight {
+        weight: W,
+    },
+    DecreaseWeight {
+        weight: W,
+    },
+    Duplicate {
+        weight: W,
+    },
+    Split {
+        weight: W,
+    },
+    Loop {
+        weight: W,
+    },
+    Output {
+        weight: W,
+    },
+    Merge {
+        n: u32,
+    },
+    Next {
+        n: u32,
+    },
+    Parent {
+        n: u32,
+    },
+    SetNodeFunction {
+        function: N,
+    },
+    Reverse,
+
+    // Saves the state
+    Save,
+
+    // Restores a previously saved state
+    Restore,
+}
+
+#[derive(Debug, Clone)]
 struct Edge<W: Debug + Clone> {
     src: usize,
     dst: usize,
@@ -44,54 +85,23 @@ impl<N:Default+Clone+Debug> Node<N> {
 }
 
 #[derive(Debug)]
+struct State {
+    from_node: usize,
+    to_node: usize,
+    edge: usize,
+}
+
+#[derive(Debug)]
 pub struct GraphBuilder<W: Debug + Default + Clone, N: Debug + Default + Clone> {
     /// The current edge is always the edge on top of the stack.
     edges: BTreeMap<usize, Edge<W>>,
     nodes: Vec<Node<N>>,
     next_edge_id: usize,
+    states: Vec<State>,
     current_from_node: usize,
     current_to_node: usize,
     current_edge: usize,
 }
-
-#[derive(Debug, Clone)]
-pub enum EdgeOperation<W:Clone, N:Clone> {
-    IncreaseWeight {
-        weight: W,
-    },
-    DecreaseWeight {
-        weight: W,
-    },
-    Duplicate {
-        weight: W,
-    },
-    Split {
-        weight: W,
-    },
-    Loop {
-        weight: W,
-    },
-    Output {
-        weight: W,
-    },
-    Merge {
-        n: u32,
-    },
-    Next {
-        n: u32,
-    },
-    Parent {
-        n: u32,
-    },
-    SetNodeFunction {
-        function: N,
-    },
-    Reverse,
-}
-
-
-// We have to delete an edge if the (from, to) nodes would otherwise
-// not much up with the edge in case of backtracking.
 
 impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, N> {
     pub fn new() -> GraphBuilder<W, N> {
@@ -101,10 +111,42 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
             edges: BTreeMap::new(),
             nodes: vec![Node::new()],
             next_edge_id: 1,
+            states: Vec::new(),
             current_from_node: 0,
             current_to_node: 0,
             current_edge: 0, /* this points to a non-existing edge by purpose! */
         }
+    }
+
+    /// Saves the current state to the internal state stack.
+    pub fn save(&mut self) {
+        let state = self.get_state();
+        self.states.push(state);
+    }
+
+    /// Restore a previously saved state. Returns false, if
+    /// no saved state exists on the stack.
+    pub fn restore(&mut self) -> bool {
+        if let Some(state) = self.states.pop() {
+            self.set_state(state);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn get_state(&self) -> State {
+        State {
+            from_node: self.current_from_node,
+            to_node: self.current_to_node,
+            edge: self.current_edge,
+        }
+    }
+
+    fn set_state(&mut self, state: State) {
+        self.current_from_node = state.from_node;
+        self.current_to_node = state.to_node;
+        self.current_edge = state.edge;
     }
 
     // XXX: Node function
@@ -138,6 +180,10 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
             EdgeOperation::Parent          {n} => self.parent(n as usize),
             EdgeOperation::SetNodeFunction {function: f} => self.set_node_function(f),
             EdgeOperation::Reverse => self.reverse(),
+            EdgeOperation::Save => self.save(),
+            EdgeOperation::Restore => {
+                let _ = self.restore();
+            }
         }
     }
 
@@ -372,12 +418,9 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
 
     /// Reverses the current edge
     fn reverse(&mut self) {
-        debug!("{:?}", self);
         let (from, to) = (self.current_from_node, self.current_to_node);
         let old_idx = self.current_edge;
         let current_edge = self.edges.remove(&old_idx);
-
-        debug!("{:?}", current_edge);
 
         let weight = match current_edge {
             Some(ref c) => c.weight.clone(),
@@ -408,13 +451,12 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
                              to: usize,
                              new_out_edge: usize,
                              new_in_edge: usize) {
-        debug!("insert_or_update_edge(old_edge={:?},from={},to={},new_out_edge={},\
-                  new_in_edge={})",
-                 old_edge,
-                 from,
-                 to,
-                 new_out_edge,
-                 new_in_edge);
+        debug!("insert_or_update_edge(old_edge={:?},from={},to={},new_out_edge={},new_in_edge={})",
+               old_edge,
+               from,
+               to,
+               new_out_edge,
+               new_in_edge);
         match old_edge {
             Some(old_id) => {
                 self.replace_edge(old_id, from, to, new_out_edge, new_in_edge);
@@ -433,11 +475,11 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
                     new_out_edge: usize,
                     new_in_edge: usize) {
         debug!("replace_edge(old_id={},from={},to={},new_out_edge={},new_in_edge={})",
-                 old_id,
-                 from,
-                 to,
-                 new_out_edge,
-                 new_in_edge);
+               old_id,
+               from,
+               to,
+               new_out_edge,
+               new_in_edge);
         // replace `old_id` with the `new_out_edge` in the from node
         let mut ok;
 
@@ -754,5 +796,57 @@ fn test_graph_paper() {
                     vec![(3, 1.0), (4, 0.4), (4, 0.8)],
                     vec![(2, 0.6), (4, 0.4)],
                     vec![(2, 0.6), (0, 0.8), (2, 2.0)]],
+               builder.to_edge_list());
+
+}
+
+#[test]
+fn test_save_restore() {
+    let mut builder: GraphBuilder<f32, usize> = GraphBuilder::new();
+    builder.update_edge_weight(0.0);
+
+    // start with a single node, self-connected with zero weight
+    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+
+    builder.save();
+    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+
+    builder.split(0.5);
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], builder.to_edge_list());
+
+    assert_eq!(true, builder.restore());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], builder.to_edge_list());
+
+    // there is now a virtual edge between 0 -> 0.
+    builder.update_edge_weight(0.7); // this will create a real edge.
+
+    assert_eq!(vec![vec![(1, 0.0), (0, 0.7)], vec![(0, 0.5)]],
+               builder.to_edge_list());
+
+    builder.split(0.6);
+    assert_eq!(vec![vec![(1, 0.0), (2, 0.7)], vec![(0, 0.5)], vec![(0, 0.6)]],
+               builder.to_edge_list());
+}
+
+#[test]
+fn test_save_restore2() {
+    let mut builder: GraphBuilder<f32, usize> = GraphBuilder::new();
+    builder.update_edge_weight(0.0);
+
+    // start with a single node, self-connected with zero weight
+    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+
+    builder.save();
+    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+
+    builder.split(0.5);
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], builder.to_edge_list());
+
+    assert_eq!(true, builder.restore());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], builder.to_edge_list());
+
+    // there is now a virtual edge between 0 -> 0 with weight 0.0.
+    builder.split(0.6);
+    assert_eq!(vec![vec![(1, 0.0), (2, 0.0)], vec![(0, 0.5)], vec![(0, 0.6)]],
                builder.to_edge_list());
 }
