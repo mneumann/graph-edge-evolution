@@ -93,7 +93,6 @@ struct State {
 
 #[derive(Debug)]
 pub struct GraphBuilder<W: Debug + Default + Clone, N: Debug + Default + Clone> {
-    /// The current edge is always the edge on top of the stack.
     edges: BTreeMap<usize, Edge<W>>,
     nodes: Vec<Node<N>>,
     next_edge_id: usize,
