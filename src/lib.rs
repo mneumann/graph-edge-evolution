@@ -58,11 +58,11 @@ struct Edge<W: Debug + Clone> {
 }
 
 impl<W:Debug+Clone+Default> Edge<W> {
-    fn new(src: usize, dst: usize) -> Edge<W> {
+    fn new(src: usize, dst: usize, weight: W) -> Edge<W> {
         Edge {
             src: src,
             dst: dst,
-            weight: W::default(),
+            weight: weight,
         }
     }
 }
@@ -84,11 +84,11 @@ impl<N:Default+Clone+Debug> Node<N> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct State {
     from_node: usize,
     to_node: usize,
-    edge: usize,
+    link_in_to_node: usize,
 }
 
 #[derive(Debug)]
@@ -96,10 +96,8 @@ pub struct GraphBuilder<W: Debug + Default + Clone, N: Debug + Default + Clone> 
     edges: BTreeMap<usize, Edge<W>>,
     nodes: Vec<Node<N>>,
     next_edge_id: usize,
+    current_state: State,
     states: Vec<State>,
-    current_from_node: usize,
-    current_to_node: usize,
-    current_edge: usize,
 }
 
 impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, N> {
@@ -109,11 +107,11 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         GraphBuilder {
             edges: BTreeMap::new(),
             nodes: vec![Node::new()],
-            next_edge_id: 1,
+            next_edge_id: 0,
+
+            /* link_in_to_node: 0 points to a non-existing "virtual" edge */
+            current_state: State{from_node: 0, to_node: 0, link_in_to_node: 0},
             states: Vec::new(),
-            current_from_node: 0,
-            current_to_node: 0,
-            current_edge: 0, /* this points to a non-existing edge by purpose! */
         }
     }
 
@@ -135,17 +133,11 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
     }
 
     fn get_state(&self) -> State {
-        State {
-            from_node: self.current_from_node,
-            to_node: self.current_to_node,
-            edge: self.current_edge,
-        }
+        self.current_state.clone()
     }
 
     fn set_state(&mut self, state: State) {
-        self.current_from_node = state.from_node;
-        self.current_to_node = state.to_node;
-        self.current_edge = state.edge;
+        self.current_state = state;
     }
 
     // XXX: Node function
@@ -189,140 +181,157 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
     /// creates an output node and connects it to the from neuron.
     /// does not change the link
     fn output(&mut self, weight: W) {
+        let from = self.current_state.from_node;
         let output_node = self.new_node();
-        let from = self.current_from_node;
         let edge_idx = self.create_new_edge_with_weight(from, output_node, weight);
         self.insert_edge(edge_idx);
     }
 
     /// changes the node function of the current to-node.
     fn set_node_function(&mut self, node_fn: N) {
-        self.nodes[self.current_to_node].node_fn = node_fn;
+        self.nodes[self.current_state.to_node].node_fn = node_fn;
     }
+
+    fn get_current_edge(&self) -> Option<usize> {
+        let to_node = &self.nodes[self.current_state.to_node];
+        if let Some(&edge_idx) = to_node.in_edges.get(self.current_state.link_in_to_node) {
+            let edge = &self.edges[&edge_idx];
+            if edge.src == self.current_state.from_node && edge.dst == self.current_state.to_node {
+                Some(edge_idx)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    fn get_nth_in_edge(&self, n: usize) -> Option<(usize, usize)> {
+        let to_node = &self.nodes[self.current_state.to_node];
+        let n = n % to_node.in_edges.len();
+        to_node.in_edges.get(n).map(|&i| (i, n))
+    }
+
 
     /// decrease-weight or increase-weight, depending on the sign of the weight.
     /// Updates the weight of the current edge, or in case of a virtual edge,
     /// creates a new edge with that weight.
-    fn update_edge_weight(&mut self, weight: W) {
-        let (from, to) = (self.current_from_node, self.current_to_node);
-        let edge_idx = self.current_edge;
+    pub fn update_edge_weight(&mut self, weight: W) {
+        let (from, to) = (self.current_state.from_node, self.current_state.to_node);
+        let cur_edge = self.get_current_edge();
 
-        // Update edge if it exists.
-        if let Some(ref mut e) = self.edges.get_mut(&edge_idx) {
+        if let Some(edge_idx) = cur_edge {
+            let e = self.get_mut_edge(edge_idx);
             assert!(e.src == from);
             assert!(e.dst == to);
             e.weight += weight;
-            return;
+        } else {
+            // Virtual edge. Create!
+            let edge_idx = self.create_new_edge_with_weight(from, to, weight);
+            self.current_state.link_in_to_node = self.nodes[to].in_edges.len();
+            self.insert_edge(edge_idx);
         }
-
-        // If it does not exist, create a new edge.
-
-        let edge_idx = self.create_new_edge_with_weight(from, to, weight);
-        self.insert_edge(edge_idx);
-        self.current_edge = edge_idx;
     }
 
     /// Adds a loop to the current edge's target neuron.
-    fn add_self_loop(&mut self, weight: W) {
-        let to = self.current_to_node;
+    pub fn add_self_loop(&mut self, weight: W) {
+        let to = self.current_state.to_node;
         let edge_idx = self.create_new_edge_with_weight(to, to, weight);
+        self.current_state.link_in_to_node = self.nodes[to].in_edges.len();
+        self.current_state.from_node = to;
         self.insert_edge(edge_idx);
-        self.current_edge = edge_idx;
-        self.current_from_node = to;
     }
 
-    /// Change from-node in current link to n-th sibling.
-    /// This also delete the current edge, as after this operation,
-    /// the edge between A->B is gone.
-    fn next(&mut self, n: usize) {
-        let new_from = (self.current_from_node + n) % self.nodes.len();
-        self.change_from_node(new_from, true /* XXX */);
+    fn get_mut_edge(&mut self, edge_idx: usize) -> &mut Edge<W> {
+        self.edges.get_mut(&edge_idx).unwrap()
     }
 
-    /// Change from-node in current link to n-th input edge of current from node.
-    /// This also delete the current edge, as after this operation,
-    /// the edge between A->B is gone.
-    /// XXX: If current from node does not have any input edges? Delete node?
-    /// XXX: Is the n-th input link removed?
-    fn parent(&mut self, n: usize) {
-        let new_from = {
-            let from_node = &self.nodes[self.current_from_node];
-            if from_node.in_edges.is_empty() {
-                // ignore for now
-                // XXX
-                return;
-            } else {
-                let edge = from_node.in_edges[n % from_node.in_edges.len()];
-                self.edges[&edge].src
-            }
-        };
-        self.change_from_node(new_from, false);
+    /// Change from-node of current link to it's n-th sibling.
+    /// The n-th sibling is the current+n-th incoming node into the to-node.
+    pub fn next(&mut self, n: usize) {
+        if let Some((sibling_edge, new_n)) = self.get_nth_in_edge(self.current_state.link_in_to_node + n) {
+            let new_from = self.edges[&sibling_edge].src;
+            self.current_state.from_node = new_from;
+            self.current_state.link_in_to_node = new_n; 
+        }
+    }
+
+    /// Change from-node of current link to n-th input edge of current from node.
+    /// If no input edge exists, the edge is left as is. TODO: Test case
+    /// The n-th input node is not deleted.
+    /// NOTE: Does not modify the graph itself, only changes the current link.
+    pub fn parent(&mut self, n: usize) {
+        let from = self.current_state.from_node;
+        if self.nodes[from].in_edges.is_empty() {
+            self.current_state.link_in_to_node = 0;
+            return;
+        }
+        let new_from = self.edges[&self.nodes[from].in_edges[n % self.nodes[from].in_edges.len()]].src;
+        self.current_state.from_node = new_from;
     }
 
     /// Copy all incoming edges of from-node into to-node, then replace from-node with to-node.
     /// The current link is removed.
+    /// Do not create a self-loop for links between A and B.
     fn merge(&mut self, n: usize) {
-        let (from, to) = (self.current_from_node, self.current_to_node);
-        let edge_idx = self.current_edge;
-        let old_edge = self.edges.remove(&edge_idx);
+        // 1. delete current edge.
+        // 2. modify all outgoing edges of A. replace the .src to B.
+        // 3. copy all incoming edges of A to B.
+        // 4. set the n-th incoming edge into A as new current edge.
 
-        if let Some(e) = old_edge {
-            // complete removal of edge
-            assert!(e.src == from);
-            assert!(e.dst == to);
+        let (from, to) = (self.current_state.from_node, self.current_state.to_node);
+
+        // 1. delete current edge (if exists)
+        if let Some(edge_idx) = self.get_current_edge() {
+            let edge = self.edges.remove(&edge_idx).unwrap();
+            debug_assert!(edge.src == from);
+            debug_assert!(edge.dst == to);
             self.nodes[from].out_edges.retain(|&i| i != edge_idx);
             self.nodes[to].in_edges.retain(|&i| i != edge_idx);
         }
 
-        if from != to {
-            // copy all in-edges of from as in-edges into
-            // as the edge target is changed, we create new edges.
-            let old_in_edges = self.nodes[from].in_edges.clone();
-            for eidx in old_in_edges {
-                let old_edge = self.edges.remove(&eidx).unwrap();
-                assert!(old_edge.dst == from);
-                self.nodes[old_edge.src].out_edges.retain(|&i| i != eidx);
-                self.nodes[old_edge.dst].in_edges.retain(|&i| i != eidx);
-                let new_edge = if old_edge.src == old_edge.dst {
-                    // we handle self-loops here.
-                    self.create_new_edge_with_weight(to, to, old_edge.weight)
-                } else {
-                    self.create_new_edge_with_weight(old_edge.src, to, old_edge.weight)
-                };
-
-                self.insert_edge(new_edge);
-            }
-
-            // replace out-edges
-            let old_out_edges = self.nodes[from].out_edges.clone();
-            for eidx in old_out_edges {
-                let old_edge = self.edges.remove(&eidx).unwrap();
-                assert!(old_edge.src == from);
-                if old_edge.src != old_edge.dst {
-                    // we have handled self-loop already above
-                    self.nodes[old_edge.src].out_edges.retain(|&i| i != eidx);
-                    self.nodes[old_edge.dst].in_edges.retain(|&i| i != eidx);
-                    let new_edge = self.create_new_edge_with_weight(to,
-                                                                    old_edge.dst,
-                                                                    old_edge.weight);
-                    self.insert_edge(new_edge);
-                }
-            }
+        if from == to {
+            return;
         }
 
+        // 2. modify all outgoing edges of A. 
+        let mut new_out_edges = Vec::new();
+        for &out_edge in self.nodes[from].out_edges.iter() {
+            let edge = self.edges.get_mut(&out_edge).unwrap();
+            debug_assert!(edge.src == from);
+            edge.src = to;
+            new_out_edges.push(out_edge);
+        }
+        self.nodes[to].out_edges.extend(new_out_edges);
+
+        // 3. copy all incoming edges of A to B. Modify them.
+        let mut new_in_edges = Vec::new();
+        for &in_edge in self.nodes[from].in_edges.iter() {
+            let edge = self.edges.get_mut(&in_edge).unwrap();
+            debug_assert!(edge.dst == from);
+            edge.dst = to;
+            new_in_edges.push(in_edge);
+        }
+        self.nodes[to].in_edges.extend(new_in_edges);
+
+        // remove from node
+        // XXX: TODO
+        self.nodes[from].out_edges.clear();
+        self.nodes[from].in_edges.clear();
+       
+        // 4.
         let edges = &self.nodes[to].in_edges;
         let l = edges.len();
         if l > 0 {
             // we use the n-th in edge as new current edge
-            self.current_edge = edges[n % l];
-            self.current_from_node = self.edges[&self.current_edge].src;
-            assert!(self.edges[&self.current_edge].dst == to);
+            self.current_state.link_in_to_node = edges[n % l];
+            self.current_state.from_node = self.edges[&self.current_state.link_in_to_node].src;
+            debug_assert!(self.edges[&self.current_state.link_in_to_node].dst == to);
         } else {
-            // we simply keep the current_edge index. it's invalid anyhow as the edge was
-            // deleted.
+            self.current_state.link_in_to_node = 0;
+            self.current_state.from_node = to;
         }
     }
-
 
     /// Split the current edge in two, and insert a node in the middle of it.
     /// If ```A -> B``` is the current edge, this will result into ```A -> N -> B```
@@ -330,194 +339,81 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
     /// There is no A -> B link after this operation, that's why we delete the edge,
     /// so that backtracking cannot later make use of it.
     fn split(&mut self, weight: W) {
-        let (from, to) = (self.current_from_node, self.current_to_node);
-        let edge_idx = self.current_edge;
+        let (from, to) = (self.current_state.from_node, self.current_state.to_node);
 
         // create intermediate node
         let middle_node = self.new_node();
 
-        // remove the original edge (if it exists).
-        let did_exist = self.edges.remove(&edge_idx);
+        // Move current link from (A,B) to (A,C) (or create a new with weight 0.0).
+        let cur_edge = self.get_current_edge(); 
+        if let Some(edge_idx) = cur_edge {
+            // new to_node is middle_node. 
+            self.get_mut_edge(edge_idx).dst = middle_node;
 
-        let orig_weight = did_exist.as_ref().map(|e| e.weight.clone());
-
-        // then, insert two new edges.
-        let first_edge = self.create_new_edge_with_weight(from,
-                                                          middle_node,
-                                                          orig_weight.unwrap_or(W::default())); // XXX: default?
-        let second_edge = self.create_new_edge_with_weight(middle_node, to, weight);
-
-        self.insert_or_update_edge(did_exist.map(|_| edge_idx),
-                                   from,
-                                   to,
-                                   first_edge,
-                                   second_edge);
-
-        self.nodes[middle_node].in_edges.push(first_edge);
-        self.nodes[middle_node].out_edges.push(second_edge);
-
-        self.current_edge = second_edge;
-        self.current_from_node = middle_node;
-    }
-
-    fn change_from_node(&mut self, new_from: usize, remove_existing_edge: bool) {
-        let (from, to) = (self.current_from_node, self.current_to_node);
-        let edge_idx = self.current_edge;
-
-        let (did_exist, orig_weight) = if remove_existing_edge {
-            // remove the original edge (if it exists).
-            let did_exist = self.edges.remove(&edge_idx);
-
-            let orig_weight = did_exist.as_ref().map(|e| e.weight.clone());
-
-            (did_exist, orig_weight)
+            // remove from incoming edges.
+            self.nodes[to].in_edges.retain(|&i| i != edge_idx);
+            // add to incoming edges of new to_node
+            self.nodes[middle_node].in_edges.push(edge_idx);
         } else {
-            (None, None)
-        };
-
-        // add the new edge
-        let new_edge = self.create_new_edge_with_weight(new_from,
-                                                        to,
-                                                        orig_weight.unwrap_or(W::default()));
-
-        if let Some(_) = did_exist {
-            // disconnect original from node
-            self.nodes[from].out_edges.retain(|&e| e != edge_idx);
-            // connect new from node
-            self.nodes[new_from].out_edges.push(new_edge);
-
-            // replace edge index in to node
-            let mut ok = false;
-            for e in self.nodes[to].in_edges.iter_mut() {
-                if *e == edge_idx {
-                    *e = new_edge;
-                    ok = true;
-                    break;
-                }
-            }
-            assert!(ok);
-        } else {
-            // for a virtual node, simply create it.
-            self.insert_edge(new_edge);
+            // current edge is virtual. Create a edge with weight 0.0.
+            let edge_idx = self.create_new_edge_with_weight(from, middle_node, W::default());
+            self.insert_edge(edge_idx);
         }
 
-        self.current_edge = new_edge;
-        self.current_from_node = new_from;
+        // Add new link from middle_node to `B` with `weight`
+        let edge_idx = self.create_new_edge_with_weight(middle_node, to, weight);
+        self.current_state.link_in_to_node = self.insert_edge(edge_idx);
+        self.current_state.from_node = middle_node;
     }
 
-    /// Duplicates the current edge
+    /// Duplicates the current edge. The new edge becomes the new current edge.
     fn duplicate(&mut self, weight: W) {
-        let (from, to) = (self.current_from_node, self.current_to_node);
-        let edge_id = self.create_new_edge_with_weight(from, to, weight);
-
-        self.insert_or_update_edge(None, from, to, edge_id, edge_id);
-
-        self.current_edge = edge_id;
+        let (from, to) = (self.current_state.from_node, self.current_state.to_node);
+        let edge_idx = self.create_new_edge_with_weight(from, to, weight);
+        self.current_state.link_in_to_node = self.insert_edge(edge_idx);
     }
 
-    /// Reverses the current edge
+    /// Reverse the current edge.
     fn reverse(&mut self) {
-        let (from, to) = (self.current_from_node, self.current_to_node);
-        let old_idx = self.current_edge;
-        let current_edge = self.edges.remove(&old_idx);
+        let (from, to) = (self.current_state.from_node, self.current_state.to_node);
 
-        let weight = match current_edge {
-            Some(ref c) => c.weight.clone(),
-            None => W::default(), // virtual?
+        // Delete current link
+        let cur_edge = self.get_current_edge(); 
+        let orig_weight = 
+        if let Some(edge_idx) = cur_edge {
+            // delete edge
+            let edge = self.edges.remove(&edge_idx).unwrap();
+            self.nodes[from].out_edges.retain(|&i| i != edge_idx);
+            self.nodes[to].in_edges.retain(|&i| i != edge_idx);
+            edge.weight
+        } else {
+            // If current edge does not exist, just change the state.
+            W::default()
         };
 
-        if let Some(e) = current_edge {
-            assert!(e.src == from);
-            assert!(e.dst == to);
-            // remove
-            self.nodes[from].out_edges.retain(|&e| e != old_idx);
-            self.nodes[to].in_edges.retain(|&e| e != old_idx);
-        }
-
-        // insert new, reversed edge again.
-        let new_edge_id = self.create_new_edge_with_weight(to, from, weight);
-
-        self.insert_edge(new_edge_id);
-        self.current_edge = new_edge_id;
-
-        self.current_from_node = to;
-        self.current_to_node = from;
+        // Add new reversed link
+        let edge_idx = self.create_new_edge_with_weight(to, from, orig_weight);
+        let new_state = State {
+            link_in_to_node: self.insert_edge(edge_idx),
+            to_node: from,
+            from_node: to,
+        };
+        self.current_state = new_state;
     }
 
-    fn insert_or_update_edge(&mut self,
-                             old_edge: Option<usize>,
-                             from: usize,
-                             to: usize,
-                             new_out_edge: usize,
-                             new_in_edge: usize) {
-        debug!("insert_or_update_edge(old_edge={:?},from={},to={},new_out_edge={},new_in_edge={})",
-               old_edge,
-               from,
-               to,
-               new_out_edge,
-               new_in_edge);
-        match old_edge {
-            Some(old_id) => {
-                self.replace_edge(old_id, from, to, new_out_edge, new_in_edge);
-            }
-            None => {
-                self.nodes[from].out_edges.push(new_out_edge);
-                self.nodes[to].in_edges.push(new_in_edge);
-            }
-        }
-    }
-
-    fn replace_edge(&mut self,
-                    old_id: usize,
-                    from: usize,
-                    to: usize,
-                    new_out_edge: usize,
-                    new_in_edge: usize) {
-        debug!("replace_edge(old_id={},from={},to={},new_out_edge={},new_in_edge={})",
-               old_id,
-               from,
-               to,
-               new_out_edge,
-               new_in_edge);
-        // replace `old_id` with the `new_out_edge` in the from node
-        let mut ok;
-
-        ok = false;
-        for e in self.nodes[from].out_edges.iter_mut() {
-            if *e == old_id {
-                *e = new_out_edge;
-                ok = true;
-                break;
-            }
-        }
-        assert!(ok);
-
-        ok = false;
-        // replace `old_id` with the `new_in_edge` in the to node
-        for e in self.nodes[to].in_edges.iter_mut() {
-            if *e == old_id {
-                *e = new_in_edge;
-                ok = true;
-                break;
-            }
-        }
-        assert!(ok);
-    }
-
-    fn insert_edge(&mut self, edge_idx: usize) {
-        let edge = self.edges.get(&edge_idx).unwrap().clone();
+    /// Returns the incoming edge index of the target node.
+    fn insert_edge(&mut self, edge_idx: usize) -> usize {
+        let edge = self.edges.get(&edge_idx).unwrap().clone(); // XXX
         self.nodes[edge.src].out_edges.push(edge_idx);
+        let idx = self.nodes[edge.dst].in_edges.len();
         self.nodes[edge.dst].in_edges.push(edge_idx);
+        idx
     }
 
+    /// Allocates a new Edge and returns new edge index.
     fn create_new_edge_with_weight(&mut self, from: usize, to: usize, weight: W) -> usize {
         let edge_id = self.next_edge_id;
-
-        // self.nodes[from].out_edges.push(edge_id);
-        // self.nodes[to].in_edges.push(edge_id);
-
-        let mut edge = Edge::new(from, to);
-        edge.weight = weight;
+        let edge = Edge::new(from, to, weight);
         self.next_edge_id += 1;
         self.edges.insert(edge_id, edge);
         return edge_id;
@@ -640,12 +536,33 @@ fn test_next() {
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0)]],
                builder.to_edge_list());
 
+    // does not change anything, because there is only one edge (no sibling).
     builder.next(1);
-    assert_eq!(vec![vec![(1, 0.0), (0, 3.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![]],
+    assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0)]],
                builder.to_edge_list());
 
-    builder.next(3);
-    assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0)]],
+    builder.duplicate(5.0);
+    assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0), (0, 5.0)]],
+               builder.to_edge_list());
+
+    builder.update_edge_weight(1.0);
+    assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0), (0, 6.0)]],
+               builder.to_edge_list());
+
+    builder.next(0);
+    builder.update_edge_weight(1.0);
+    assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0), (0, 7.0)]],
+               builder.to_edge_list());
+
+
+    builder.next(1);
+    builder.update_edge_weight(1.0);
+    assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 4.0), (0, 7.0)]],
+               builder.to_edge_list());
+
+    builder.next(2);
+    builder.update_edge_weight(1.0);
+    assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 5.0), (0, 7.0)]],
                builder.to_edge_list());
 }
 
@@ -658,18 +575,20 @@ fn test_parent() {
     assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
 
     builder.parent(0);
-    assert_eq!(vec![vec![(0, 0.0), (0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
     builder.parent(3);
-    assert_eq!(vec![vec![(0, 0.0), (0, 0.0), (0, 0.0)]],
+    assert_eq!(vec![vec![(0, 0.0)]],
                builder.to_edge_list());
 
     builder.split(1.0);
-    assert_eq!(vec![vec![(0, 0.0), (0, 0.0), (1, 0.0)], vec![(0, 1.0)]],
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]],
                builder.to_edge_list());
 
     builder.parent(0);
-    assert_eq!(vec![vec![(0, 0.0), (0, 0.0), (1, 0.0), (0, 0.0)], vec![(0, 1.0)]],
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]],
                builder.to_edge_list());
+
+    // XXX: add more tests
 }
 
 #[test]
@@ -779,20 +698,28 @@ fn test_graph_paper() {
                     vec![(2, 0.6)]],
                builder.to_edge_list());
 
+    assert_eq!(4, builder.get_state().to_node);
+    assert_eq!(2, builder.get_state().from_node);
+    assert_eq!(1, builder.get_state().link_in_to_node);
+
     // figure 2.g
     builder.parent(1);
     assert_eq!(vec![vec![(1, 0.25), (2, 3.0)],
-                    vec![(0, 0.8), (2, 2.0), (4, 0.0)],
+                    vec![(0, 0.8), (2, 2.0)],
                     vec![(1, 0.8), (3, 1.0), (4, 0.4)],
                     vec![(2, 0.6), (4, 0.4)],
                     vec![(2, 0.6)]],
                builder.to_edge_list());
 
+    assert_eq!(4, builder.get_state().to_node);
+    assert_eq!(1, builder.get_state().from_node);
+    assert_eq!(1, builder.get_state().link_in_to_node);
+
     // figure 2.h
     builder.merge(1);
-    assert_eq!(vec![vec![(2, 3.0), (4, 0.25)],
+    assert_eq!(vec![vec![(4, 0.25), (2, 3.0)],
                     vec![],
-                    vec![(3, 1.0), (4, 0.4), (4, 0.8)],
+                    vec![(4, 0.8), (3, 1.0), (4, 0.4)],
                     vec![(2, 0.6), (4, 0.4)],
                     vec![(2, 0.6), (0, 0.8), (2, 2.0)]],
                builder.to_edge_list());
