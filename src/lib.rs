@@ -109,8 +109,12 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
             nodes: vec![Node::new()],
             next_edge_id: 0,
 
-            /* link_in_to_node: 0 points to a non-existing "virtual" edge */
-            current_state: State{from_node: 0, to_node: 0, link_in_to_node: 0},
+            // link_in_to_node: 0 points to a non-existing "virtual" edge
+            current_state: State {
+                from_node: 0,
+                to_node: 0,
+                link_in_to_node: 0,
+            },
             states: Vec::new(),
         }
     }
@@ -249,10 +253,12 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
     /// Change from-node of current link to it's n-th sibling.
     /// The n-th sibling is the current+n-th incoming node into the to-node.
     pub fn next(&mut self, n: usize) {
-        if let Some((sibling_edge, new_n)) = self.get_nth_in_edge(self.current_state.link_in_to_node + n) {
+        if let Some((sibling_edge, new_n)) = self.get_nth_in_edge(self.current_state
+                                                                      .link_in_to_node +
+                                                                  n) {
             let new_from = self.edges[&sibling_edge].src;
             self.current_state.from_node = new_from;
-            self.current_state.link_in_to_node = new_n; 
+            self.current_state.link_in_to_node = new_n;
         }
     }
 
@@ -266,7 +272,8 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
             self.current_state.link_in_to_node = 0;
             return;
         }
-        let new_from = self.edges[&self.nodes[from].in_edges[n % self.nodes[from].in_edges.len()]].src;
+        let new_from = self.edges[&self.nodes[from].in_edges[n % self.nodes[from].in_edges.len()]]
+                           .src;
         self.current_state.from_node = new_from;
     }
 
@@ -294,7 +301,7 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
             return;
         }
 
-        // 2. modify all outgoing edges of A. 
+        // 2. modify all outgoing edges of A.
         let mut new_out_edges = Vec::new();
         for &out_edge in self.nodes[from].out_edges.iter() {
             let edge = self.edges.get_mut(&out_edge).unwrap();
@@ -318,7 +325,7 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         // XXX: TODO
         self.nodes[from].out_edges.clear();
         self.nodes[from].in_edges.clear();
-       
+
         // 4.
         let edges = &self.nodes[to].in_edges;
         let l = edges.len();
@@ -345,9 +352,9 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         let middle_node = self.new_node();
 
         // Move current link from (A,B) to (A,C) (or create a new with weight 0.0).
-        let cur_edge = self.get_current_edge(); 
+        let cur_edge = self.get_current_edge();
         if let Some(edge_idx) = cur_edge {
-            // new to_node is middle_node. 
+            // new to_node is middle_node.
             self.get_mut_edge(edge_idx).dst = middle_node;
 
             // remove from incoming edges.
@@ -378,9 +385,8 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         let (from, to) = (self.current_state.from_node, self.current_state.to_node);
 
         // Delete current link
-        let cur_edge = self.get_current_edge(); 
-        let orig_weight = 
-        if let Some(edge_idx) = cur_edge {
+        let cur_edge = self.get_current_edge();
+        let orig_weight = if let Some(edge_idx) = cur_edge {
             // delete edge
             let edge = self.edges.remove(&edge_idx).unwrap();
             self.nodes[from].out_edges.retain(|&i| i != edge_idx);
@@ -577,16 +583,13 @@ fn test_parent() {
     builder.parent(0);
     assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
     builder.parent(3);
-    assert_eq!(vec![vec![(0, 0.0)]],
-               builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
 
     builder.split(1.0);
-    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]],
-               builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], builder.to_edge_list());
 
     builder.parent(0);
-    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]],
-               builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], builder.to_edge_list());
 
     // XXX: add more tests
 }
