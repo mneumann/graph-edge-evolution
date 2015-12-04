@@ -97,6 +97,7 @@ struct State {
 pub struct GraphBuilder<W: Debug + Default + Clone, N: Debug + Default + Clone> {
     edges: BTreeMap<usize, Edge<W>>,
     nodes: Vec<Node<N>>,
+    deleted_nodes: usize,
     next_edge_id: usize,
     current_state: State,
     states: Vec<State>,
@@ -109,6 +110,7 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         GraphBuilder {
             edges: BTreeMap::new(),
             nodes: vec![Node::new()],
+            deleted_nodes: 0,
             next_edge_id: 0,
 
             // link_in_to_node: 0 points to a non-existing "virtual" edge
@@ -144,6 +146,34 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
 
     fn set_state(&mut self, state: State) {
         self.current_state = state;
+    }
+
+    pub fn total_number_of_nodes(&self) -> usize {
+        self.nodes.len() - self.deleted_nodes
+    }
+
+    // iterate only over non-deleted nodes.
+    #[inline]
+    pub fn visit_nodes<F: FnMut(usize, &N)>(&self, mut callback: F) {
+        for (i, node) in self.nodes.iter().enumerate() {
+            if !node.deleted {
+                callback(i, &node.node_fn);
+            }
+        }
+    }
+
+    // iterate only over non-deleted nodes.
+    #[inline]
+    pub fn visit_edges<F: FnMut((usize, usize), &W)>(&self, mut callback: F) {
+        for (i, node) in self.nodes.iter().enumerate() {
+            if !node.deleted {
+                for out_edge in node.out_edges.iter() {
+                    let edge = &self.edges[out_edge];
+                    debug_assert!(edge.src == i);
+                    callback((edge.src, edge.dst), &edge.weight);
+                }
+            }
+        }
     }
 
     pub fn to_edge_list(&self) -> Vec<Option<(N, Vec<(usize, W)>)>> {
@@ -331,6 +361,7 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         self.nodes[from].out_edges.clear();
         self.nodes[from].in_edges.clear();
         self.nodes[from].deleted = true;
+        self.deleted_nodes += 1;
 
         // 4.
         let edges = &self.nodes[to].in_edges;
@@ -623,6 +654,15 @@ fn test_merge_self_loop() {
     builder.merge(1);
     let v: Vec<Vec<(usize, f32)>> = vec![vec![]];
     assert_eq!(v, edge_list(&builder));
+
+    let mut nodes = vec![];
+    builder.visit_nodes(|i, _| nodes.push(i));
+    assert_eq!(vec![0], nodes);
+
+    let mut edges = vec![];
+    builder.visit_edges(|(i, j), _w| edges.push((i, j)));
+    let res: Vec<(usize, usize)> = vec![];
+    assert_eq!(res, edges);
 }
 
 #[test]
