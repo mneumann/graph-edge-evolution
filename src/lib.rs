@@ -72,6 +72,7 @@ struct Node<N: Clone + Default + Debug> {
     in_edges: Vec<usize>,
     out_edges: Vec<usize>,
     node_fn: N,
+    deleted: bool,
 }
 
 impl<N:Default+Clone+Debug> Node<N> {
@@ -80,6 +81,7 @@ impl<N:Default+Clone+Debug> Node<N> {
             in_edges: Vec::new(),
             out_edges: Vec::new(),
             node_fn: N::default(),
+            deleted: false,
         }
     }
 }
@@ -144,18 +146,22 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         self.current_state = state;
     }
 
-    pub fn to_edge_list(&self) -> Vec<(N, Vec<(usize, W)>)> {
+    pub fn to_edge_list(&self) -> Vec<Option<(N, Vec<(usize, W)>)>> {
         self.nodes
             .iter()
             .map(|n| {
-                (n.node_fn.clone(),
-                 n.out_edges
-                  .iter()
-                  .map(|oe| {
-                      let edge = &self.edges[oe];
-                      (edge.dst, edge.weight.clone())
-                  })
-                  .collect())
+                if n.deleted == true {
+                    None
+                } else {
+                    Some((n.node_fn.clone(),
+                          n.out_edges
+                           .iter()
+                           .map(|oe| {
+                               let edge = &self.edges[oe];
+                               (edge.dst, edge.weight.clone())
+                           })
+                           .collect()))
+                }
             })
             .collect()
     }
@@ -321,10 +327,10 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         }
         self.nodes[to].in_edges.extend(new_in_edges);
 
-        // remove from node
-        // XXX: TODO
+        // remove from node (TODO: improve)
         self.nodes[from].out_edges.clear();
         self.nodes[from].in_edges.clear();
+        self.nodes[from].deleted = true;
 
         // 4.
         let edges = &self.nodes[to].in_edges;
@@ -435,7 +441,15 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
 
 #[cfg(test)]
 fn edge_list<W:Debug+Default+Clone+AddAssign<W>,N:Debug+Default+Clone>(builder: &GraphBuilder<W,N>) -> Vec<Vec<(usize, W)>> {
-    builder.to_edge_list().into_iter().map(|(_, b)| b).collect()
+    builder.to_edge_list()
+           .into_iter()
+           .map(|n| {
+               match n {
+                   Some((_, b)) => b,
+                   None => vec![],
+               }
+           })
+           .collect()
 }
 
 #[test]
