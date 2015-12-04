@@ -9,8 +9,57 @@ use std::collections::BTreeMap;
 use std::ops::AddAssign;
 use std::ops::Neg;
 
+pub trait NthEdge: Clone {
+    fn edge_index(&self, num_edges: usize, offset: usize) -> Option<usize>;
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct NthEdgeI(pub u32);
+#[derive(Debug, Clone, Copy)]
+pub struct NthEdgeF(pub f32);
+
+impl NthEdge for NthEdgeI {
+    fn edge_index(&self, num_edges: usize, offset: usize) -> Option<usize> {
+        if num_edges > 0 {
+            Some((self.0 as usize + offset) % num_edges)
+        } else {
+            None
+        }
+    }
+}
+
+impl NthEdge for NthEdgeF {
+    fn edge_index(&self, num_edges: usize, offset: usize) -> Option<usize> {
+        debug_assert!(self.0 >= 0.0 && self.0 < 1.0);
+        if num_edges > 0 {
+            let edge = (self.0 * num_edges as f32) as usize;
+            debug_assert!(edge < num_edges);
+            Some((edge + offset) % num_edges)
+        } else {
+            None
+        }
+    }
+}
+
+#[test]
+fn test_nthedge() {
+    let n = NthEdgeI(3);
+    assert_eq!(Some(3), n.edge_index(4, 0));
+    assert_eq!(Some(0), n.edge_index(3, 0));
+    assert_eq!(None, n.edge_index(0, 0));
+
+    assert_eq!(Some(0), NthEdgeF(0.0).edge_index(10, 0));
+    assert_eq!(Some(0), NthEdgeF(0.09).edge_index(10, 0));
+    assert_eq!(Some(1), NthEdgeF(0.1).edge_index(10, 0));
+    assert_eq!(Some(2), NthEdgeF(0.2).edge_index(10, 0));
+    assert_eq!(Some(3), NthEdgeF(0.3).edge_index(10, 0));
+    assert_eq!(Some(9), NthEdgeF(0.9).edge_index(10, 0));
+    assert_eq!(Some(9), NthEdgeF(0.999).edge_index(10, 0));
+    assert_eq!(Some(9), NthEdgeF(0.999).edge_index(10, 10));
+}
+
 #[derive(Debug, Clone)]
-pub enum EdgeOperation<W: Clone, N: Clone> {
+pub enum EdgeOperation<W: Clone, N: Clone, NT: Clone> {
     IncreaseWeight {
         weight: W,
     },
@@ -30,13 +79,13 @@ pub enum EdgeOperation<W: Clone, N: Clone> {
         weight: W,
     },
     Merge {
-        n: u32,
+        n: NT,
     },
     Next {
-        n: u32,
+        n: NT,
     },
     Parent {
-        n: u32,
+        n: NT,
     },
     SetNodeFunction {
         function: N,
@@ -196,7 +245,7 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
             .collect()
     }
 
-    pub fn apply_operation(&mut self, op: EdgeOperation<W, N>)
+    pub fn apply_operation<NT: NthEdge>(&mut self, op: EdgeOperation<W, N, NT>)
         where W: Neg<Output = W>
     {
         match op {
@@ -206,9 +255,9 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
             EdgeOperation::Split           {weight: w} => self.split(w),
             EdgeOperation::Loop            {weight: w} => self.add_self_loop(w),
             EdgeOperation::Output          {weight: w} => self.output(w),
-            EdgeOperation::Merge           {n} => self.merge(n as usize),
-            EdgeOperation::Next            {n} => self.next(n as usize),
-            EdgeOperation::Parent          {n} => self.parent(n as usize),
+            EdgeOperation::Merge           {n} => self.merge(n),
+            EdgeOperation::Next            {n} => self.next(n),
+            EdgeOperation::Parent          {n} => self.parent(n),
             EdgeOperation::SetNodeFunction {function: f} => self.set_node_function(f),
             EdgeOperation::Reverse => self.reverse(),
             EdgeOperation::Save => self.save(),
@@ -241,17 +290,6 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
             } else {
                 None
             }
-        } else {
-            None
-        }
-    }
-
-    fn get_nth_in_edge(&self, n: usize) -> Option<(usize, usize)> {
-        let to_node = &self.nodes[self.current_state.to_node];
-        let len = to_node.in_edges.len();
-        if len > 0 {
-            let n = n % len;
-            to_node.in_edges.get(n).map(|&i| (i, n))
         } else {
             None
         }
@@ -292,10 +330,11 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
 
     /// Change from-node of current link to it's n-th sibling.
     /// The n-th sibling is the current+n-th incoming node into the to-node.
-    pub fn next(&mut self, n: usize) {
-        if let Some((sibling_edge, new_n)) = self.get_nth_in_edge(self.current_state
-                                                                      .link_in_to_node +
-                                                                  n) {
+    pub fn next<NT: NthEdge>(&mut self, n: NT) {
+        let to_node = &self.nodes[self.current_state.to_node];
+        if let Some(new_n) = n.edge_index(to_node.in_edges.len(),
+                                          self.current_state.link_in_to_node) {
+            let sibling_edge = to_node.in_edges[new_n];
             let new_from = self.edges[&sibling_edge].src;
             self.current_state.from_node = new_from;
             self.current_state.link_in_to_node = new_n;
@@ -306,21 +345,24 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
     /// If no input edge exists, the edge is left as is. TODO: Test case
     /// The n-th input node is not deleted.
     /// NOTE: Does not modify the graph itself, only changes the current link.
-    pub fn parent(&mut self, n: usize) {
+    pub fn parent<NT: NthEdge>(&mut self, n: NT) {
         let from = self.current_state.from_node;
-        if self.nodes[from].in_edges.is_empty() {
-            self.current_state.link_in_to_node = 0;
+        let edge_idx = n.edge_index(self.nodes[from].in_edges.len(), 0);
+        if let Some(idx) = edge_idx {
+            let new_from = self.edges[&self.nodes[from].in_edges[idx]].src;
+            self.current_state.from_node = new_from;
+            self.current_state.link_in_to_node = idx;
+        } else {
+            // XXX
+            // self.current_state.link_in_to_node = 0;
             return;
         }
-        let new_from = self.edges[&self.nodes[from].in_edges[n % self.nodes[from].in_edges.len()]]
-                           .src;
-        self.current_state.from_node = new_from;
     }
 
     /// Copy all incoming edges of from-node into to-node, then replace from-node with to-node.
     /// The current link is removed.
     /// Do not create a self-loop for links between A and B.
-    fn merge(&mut self, n: usize) {
+    fn merge<NT: NthEdge>(&mut self, n: NT) {
         // 1. delete current edge.
         // 2. modify all outgoing edges of A. replace the .src to B.
         // 3. copy all incoming edges of A to B.
@@ -369,10 +411,9 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
 
         // 4.
         let edges = &self.nodes[to].in_edges;
-        let l = edges.len();
-        if l > 0 {
+        if let Some(idx) = n.edge_index(edges.len(), 0) {
             // we use the n-th in edge as new current edge
-            self.current_state.link_in_to_node = edges[n % l];
+            self.current_state.link_in_to_node = edges[idx];
             self.current_state.from_node = self.edges[&self.current_state.link_in_to_node].src;
             debug_assert!(self.edges[&self.current_state.link_in_to_node].dst == to);
         } else {
@@ -596,7 +637,7 @@ fn test_next() {
                edge_list(&builder));
 
     // does not change anything, because there is only one edge (no sibling).
-    builder.next(1);
+    builder.next(NthEdgeI(1));
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0)]],
                edge_list(&builder));
 
@@ -608,18 +649,18 @@ fn test_next() {
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0), (0, 6.0)]],
                edge_list(&builder));
 
-    builder.next(0);
+    builder.next(NthEdgeI(0));
     builder.update_edge_weight(1.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0), (0, 7.0)]],
                edge_list(&builder));
 
 
-    builder.next(1);
+    builder.next(NthEdgeI(1));
     builder.update_edge_weight(1.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 4.0), (0, 7.0)]],
                edge_list(&builder));
 
-    builder.next(2);
+    builder.next(NthEdgeI(2));
     builder.update_edge_weight(1.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 5.0), (0, 7.0)]],
                edge_list(&builder));
@@ -633,15 +674,15 @@ fn test_parent() {
     // start with a single node, self-connected with zero weight
     assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
-    builder.parent(0);
+    builder.parent(NthEdgeI(0));
     assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
-    builder.parent(3);
+    builder.parent(NthEdgeI(3));
     assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.split(1.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], edge_list(&builder));
 
-    builder.parent(0);
+    builder.parent(NthEdgeI(0));
     assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], edge_list(&builder));
 
     // XXX: add more tests
@@ -655,7 +696,7 @@ fn test_merge_self_loop() {
     // start with a single node, self-connected with zero weight
     assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
-    builder.merge(1);
+    builder.merge(NthEdgeI(1));
     let v: Vec<Vec<(usize, f32)>> = vec![vec![]];
     assert_eq!(v, edge_list(&builder));
 
@@ -681,7 +722,7 @@ fn test_merge_self_loop2() {
 
     assert_eq!(vec![vec![(0, 0.0), (0, 1.0)]], edge_list(&builder));
 
-    builder.merge(1);
+    builder.merge(NthEdgeI(1));
     assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 }
 
@@ -767,7 +808,7 @@ fn test_graph_paper() {
     assert_eq!(1, builder.get_state().link_in_to_node);
 
     // figure 2.g
-    builder.parent(1);
+    builder.parent(NthEdgeI(1));
     assert_eq!(vec![vec![(1, 0.25), (2, 3.0)],
                     vec![(0, 0.8), (2, 2.0)],
                     vec![(1, 0.8), (3, 1.0), (4, 0.4)],
@@ -780,7 +821,7 @@ fn test_graph_paper() {
     assert_eq!(1, builder.get_state().link_in_to_node);
 
     // figure 2.h
-    builder.merge(1);
+    builder.merge(NthEdgeI(1));
     assert_eq!(vec![vec![(4, 0.25), (2, 3.0)],
                     vec![],
                     vec![(4, 0.8), (3, 1.0), (4, 0.4)],
