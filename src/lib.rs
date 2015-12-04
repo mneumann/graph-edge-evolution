@@ -144,18 +144,18 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         self.current_state = state;
     }
 
-    // XXX: Node function
-    pub fn to_edge_list(&self) -> Vec<Vec<(usize, W)>> {
+    pub fn to_edge_list(&self) -> Vec<(N, Vec<(usize, W)>)> {
         self.nodes
             .iter()
             .map(|n| {
-                n.out_edges
-                 .iter()
-                 .map(|oe| {
-                     let edge = &self.edges[oe];
-                     (edge.dst, edge.weight.clone())
-                 })
-                 .collect()
+                (n.node_fn.clone(),
+                 n.out_edges
+                  .iter()
+                  .map(|oe| {
+                      let edge = &self.edges[oe];
+                      (edge.dst, edge.weight.clone())
+                  })
+                  .collect())
             })
             .collect()
     }
@@ -433,11 +433,16 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
     }
 }
 
+#[cfg(test)]
+fn edge_list<W:Debug+Default+Clone+AddAssign<W>,N:Debug+Default+Clone>(builder: &GraphBuilder<W,N>) -> Vec<Vec<(usize, W)>> {
+    builder.to_edge_list().into_iter().map(|(_, b)| b).collect()
+}
+
 #[test]
 fn test_empty() {
     let builder: GraphBuilder<f32, usize> = GraphBuilder::new();
     let v: Vec<Vec<(usize, f32)>> = vec![vec![]];
-    assert_eq!(v, builder.to_edge_list());
+    assert_eq!(v, edge_list(&builder));
 }
 
 #[test]
@@ -446,18 +451,18 @@ fn test_split() {
     builder.update_edge_weight(0.0);
 
     // start with a single node, self-connected with zero weight
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.split(1.0);
-    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], edge_list(&builder));
 
     builder.split(2.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(0, 2.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     builder.split(3.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 }
 
 #[test]
@@ -466,18 +471,18 @@ fn test_duplicate() {
     builder.update_edge_weight(0.0);
 
     // start with a single node, self-connected with zero weight
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.duplicate(1.0);
-    assert_eq!(vec![vec![(0, 0.0), (0, 1.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0), (0, 1.0)]], edge_list(&builder));
 
     builder.split(0.25);
     assert_eq!(vec![vec![(0, 0.0), (1, 1.0)], vec![(0, 0.25)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     builder.duplicate(2.0);
     assert_eq!(vec![vec![(0, 0.0), (1, 1.0)], vec![(0, 0.25), (0, 2.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 }
 
 #[test]
@@ -486,14 +491,13 @@ fn test_reverse() {
     builder.update_edge_weight(0.0);
 
     // start with a single node, self-connected with zero weight
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.split(1.0);
-    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], edge_list(&builder));
 
     builder.reverse();
-    assert_eq!(vec![vec![(1, 0.0), (1, 1.0)], vec![]],
-               builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.0), (1, 1.0)], vec![]], edge_list(&builder));
 }
 
 #[test]
@@ -502,13 +506,13 @@ fn test_update_edge_weight() {
     builder.update_edge_weight(0.0);
 
     // start with a single node, self-connected with zero weight
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.update_edge_weight(4.0);
-    assert_eq!(vec![vec![(0, 4.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 4.0)]], edge_list(&builder));
 
     builder.update_edge_weight(-4.0);
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 }
 
 #[test]
@@ -517,10 +521,10 @@ fn test_add_self_loop() {
     builder.update_edge_weight(0.0);
 
     // start with a single node, self-connected with zero weight
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.add_self_loop(1.0);
-    assert_eq!(vec![vec![(0, 0.0), (0, 1.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0), (0, 1.0)]], edge_list(&builder));
 }
 
 #[test]
@@ -529,47 +533,47 @@ fn test_next() {
     builder.update_edge_weight(0.0);
 
     // start with a single node, self-connected with zero weight
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.split(1.0);
-    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], edge_list(&builder));
 
     builder.split(2.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(0, 2.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     builder.split(3.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     // does not change anything, because there is only one edge (no sibling).
     builder.next(1);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     builder.duplicate(5.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0), (0, 5.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     builder.update_edge_weight(1.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0), (0, 6.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     builder.next(0);
     builder.update_edge_weight(1.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0), (0, 7.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
 
     builder.next(1);
     builder.update_edge_weight(1.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 4.0), (0, 7.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     builder.next(2);
     builder.update_edge_weight(1.0);
     assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 5.0), (0, 7.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 }
 
 #[test]
@@ -578,18 +582,18 @@ fn test_parent() {
     builder.update_edge_weight(0.0);
 
     // start with a single node, self-connected with zero weight
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.parent(0);
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
     builder.parent(3);
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.split(1.0);
-    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], edge_list(&builder));
 
     builder.parent(0);
-    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], edge_list(&builder));
 
     // XXX: add more tests
 }
@@ -600,11 +604,11 @@ fn test_merge_self_loop() {
     builder.update_edge_weight(0.0);
 
     // start with a single node, self-connected with zero weight
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.merge(1);
     let v: Vec<Vec<(usize, f32)>> = vec![vec![]];
-    assert_eq!(v, builder.to_edge_list());
+    assert_eq!(v, edge_list(&builder));
 }
 
 #[test]
@@ -613,14 +617,14 @@ fn test_merge_self_loop2() {
     builder.update_edge_weight(0.0);
 
     // start with a single node, self-connected with zero weight
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.add_self_loop(1.0);
 
-    assert_eq!(vec![vec![(0, 0.0), (0, 1.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0), (0, 1.0)]], edge_list(&builder));
 
     builder.merge(1);
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 }
 
 #[test]
@@ -629,34 +633,33 @@ fn test_graph_paper() {
 
     // figure 2.a
     builder.update_edge_weight(0.25);
-    assert_eq!(vec![vec![(0, 0.25)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.25)]], edge_list(&builder));
 
     // figure 2.b
     builder.split(0.8);
-    assert_eq!(vec![vec![(1, 0.25)], vec![(0, 0.8)]],
-               builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.25)], vec![(0, 0.8)]], edge_list(&builder));
 
     // figure 2.c
     builder.duplicate(3.0);
     assert_eq!(vec![vec![(1, 0.25)], vec![(0, 0.8), (0, 3.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     // figure 2.d
     builder.reverse();
     assert_eq!(vec![vec![(1, 0.25), (1, 3.0)], vec![(0, 0.8)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     // figure 2.e
     builder.split(0.8);
     builder.duplicate(2.0);
     builder.reverse();
     assert_eq!(vec![vec![(1, 0.25), (2, 3.0)], vec![(0, 0.8), (2, 2.0)], vec![(1, 0.8)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     // figure 2.f
     builder.add_self_loop(1.0);
     assert_eq!(vec![vec![(1, 0.25), (2, 3.0)], vec![(0, 0.8), (2, 2.0)], vec![(1, 0.8), (2, 1.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     // figure 2.g1
     builder.split(0.6);
@@ -664,7 +667,7 @@ fn test_graph_paper() {
                     vec![(0, 0.8), (2, 2.0)],
                     vec![(1, 0.8), (3, 1.0)],
                     vec![(2, 0.6)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     // figure 2.g2
     builder.duplicate(0.4);
@@ -672,7 +675,7 @@ fn test_graph_paper() {
                     vec![(0, 0.8), (2, 2.0)],
                     vec![(1, 0.8), (3, 1.0)],
                     vec![(2, 0.6), (2, 0.4)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     // figure 2.g3
     builder.split(0.6);
@@ -681,7 +684,7 @@ fn test_graph_paper() {
                     vec![(1, 0.8), (3, 1.0)],
                     vec![(2, 0.6), (4, 0.4)],
                     vec![(2, 0.6)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     // figure 2.g4
     builder.duplicate(0.4);
@@ -690,7 +693,7 @@ fn test_graph_paper() {
                     vec![(1, 0.8), (3, 1.0)],
                     vec![(2, 0.6), (4, 0.4)],
                     vec![(2, 0.6), (2, 0.4)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     // figure 2.g5
     builder.reverse();
@@ -699,7 +702,7 @@ fn test_graph_paper() {
                     vec![(1, 0.8), (3, 1.0), (4, 0.4)],
                     vec![(2, 0.6), (4, 0.4)],
                     vec![(2, 0.6)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     assert_eq!(4, builder.get_state().to_node);
     assert_eq!(2, builder.get_state().from_node);
@@ -712,7 +715,7 @@ fn test_graph_paper() {
                     vec![(1, 0.8), (3, 1.0), (4, 0.4)],
                     vec![(2, 0.6), (4, 0.4)],
                     vec![(2, 0.6)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     assert_eq!(4, builder.get_state().to_node);
     assert_eq!(1, builder.get_state().from_node);
@@ -725,7 +728,7 @@ fn test_graph_paper() {
                     vec![(4, 0.8), (3, 1.0), (4, 0.4)],
                     vec![(2, 0.6), (4, 0.4)],
                     vec![(2, 0.6), (0, 0.8), (2, 2.0)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
 }
 
@@ -735,26 +738,26 @@ fn test_save_restore() {
     builder.update_edge_weight(0.0);
 
     // start with a single node, self-connected with zero weight
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.save();
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.split(0.5);
-    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], edge_list(&builder));
 
     assert_eq!(true, builder.restore());
-    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], edge_list(&builder));
 
     // there is now a virtual edge between 0 -> 0.
     builder.update_edge_weight(0.7); // this will create a real edge.
 
     assert_eq!(vec![vec![(1, 0.0), (0, 0.7)], vec![(0, 0.5)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 
     builder.split(0.6);
     assert_eq!(vec![vec![(1, 0.0), (2, 0.7)], vec![(0, 0.5)], vec![(0, 0.6)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 }
 
 #[test]
@@ -763,19 +766,19 @@ fn test_save_restore2() {
     builder.update_edge_weight(0.0);
 
     // start with a single node, self-connected with zero weight
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.save();
-    assert_eq!(vec![vec![(0, 0.0)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
 
     builder.split(0.5);
-    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], edge_list(&builder));
 
     assert_eq!(true, builder.restore());
-    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], builder.to_edge_list());
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], edge_list(&builder));
 
     // there is now a virtual edge between 0 -> 0 with weight 0.0.
     builder.split(0.6);
     assert_eq!(vec![vec![(1, 0.0), (2, 0.0)], vec![(0, 0.5)], vec![(0, 0.6)]],
-               builder.to_edge_list());
+               edge_list(&builder));
 }
