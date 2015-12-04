@@ -248,10 +248,14 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
 
     fn get_nth_in_edge(&self, n: usize) -> Option<(usize, usize)> {
         let to_node = &self.nodes[self.current_state.to_node];
-        let n = n % to_node.in_edges.len();
-        to_node.in_edges.get(n).map(|&i| (i, n))
+        let len = to_node.in_edges.len();
+        if len > 0 {
+            let n = n % len;
+            to_node.in_edges.get(n).map(|&i| (i, n))
+        } else {
+            None
+        }
     }
-
 
     /// decrease-weight or increase-weight, depending on the sign of the weight.
     /// Updates the weight of the current edge, or in case of a virtual edge,
