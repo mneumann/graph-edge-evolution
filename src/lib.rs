@@ -219,7 +219,10 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
                 for out_edge in node.out_edges.iter() {
                     let edge = &self.edges[out_edge];
                     debug_assert!(edge.src == i);
-                    callback((edge.src, edge.dst), &edge.weight);
+                    // skip edge is destination node is deleted.
+                    if !self.nodes[edge.dst].deleted {
+                        callback((edge.src, edge.dst), &edge.weight);
+                    }
                 }
             }
         }
