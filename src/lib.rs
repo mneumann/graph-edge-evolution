@@ -106,7 +106,7 @@ struct Edge<W: Debug + Clone> {
     weight: W,
 }
 
-impl<W:Debug+Clone+Default> Edge<W> {
+impl<W: Debug + Clone + Default> Edge<W> {
     fn new(src: usize, dst: usize, weight: W) -> Edge<W> {
         Edge {
             src: src,
@@ -121,17 +121,19 @@ struct Node<N: Clone + Default + Debug> {
     in_edges: Vec<usize>,
     out_edges: Vec<usize>,
     node_fn: N,
-    deleted: bool,
 }
 
-impl<N:Default+Clone+Debug> Node<N> {
+impl<N: Default + Clone + Debug> Node<N> {
     fn new() -> Node<N> {
         Node {
             in_edges: Vec::new(),
             out_edges: Vec::new(),
             node_fn: N::default(),
-            deleted: false,
         }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.in_edges.is_empty() && self.out_edges.is_empty()
     }
 }
 
@@ -146,20 +148,18 @@ struct State {
 pub struct GraphBuilder<W: Debug + Default + Clone, N: Debug + Default + Clone> {
     edges: BTreeMap<usize, Edge<W>>,
     nodes: Vec<Node<N>>,
-    deleted_nodes: usize,
     next_edge_id: usize,
     current_state: State,
     states: Vec<State>,
 }
 
-impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, N> {
+impl<W: Debug + Default + Clone + AddAssign<W>, N: Debug + Default + Clone> GraphBuilder<W, N> {
     pub fn new() -> GraphBuilder<W, N> {
         // we begin with an empty node and a virtual edge.
 
         GraphBuilder {
             edges: BTreeMap::new(),
             nodes: vec![Node::new()],
-            deleted_nodes: 0,
             next_edge_id: 0,
 
             // link_in_to_node: 0 points to a non-existing "virtual" edge
@@ -197,32 +197,30 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         self.current_state = state;
     }
 
-    pub fn total_number_of_nodes(&self) -> usize {
-        self.nodes.len() - self.deleted_nodes
+    pub fn count_nodes(&self) -> usize {
+        let mut count = 0;
+        self.visit_nodes(|_, _| count += 1);
+        count
     }
 
-    // iterate only over non-deleted nodes.
+    // iterate over all non-empty nodes.
     #[inline]
     pub fn visit_nodes<F: FnMut(usize, &N)>(&self, mut callback: F) {
         for (i, node) in self.nodes.iter().enumerate() {
-            if !node.deleted {
+            if !node.is_empty() {
                 callback(i, &node.node_fn);
             }
         }
     }
 
-    // iterate only over non-deleted nodes.
     #[inline]
     pub fn visit_edges<F: FnMut((usize, usize), &W)>(&self, mut callback: F) {
         for (i, node) in self.nodes.iter().enumerate() {
-            if !node.deleted {
+            if !node.is_empty() {
                 for out_edge in node.out_edges.iter() {
                     let edge = &self.edges[out_edge];
                     debug_assert!(edge.src == i);
-                    // skip edge is destination node is deleted.
-                    if !self.nodes[edge.dst].deleted {
-                        callback((edge.src, edge.dst), &edge.weight);
-                    }
+                    callback((edge.src, edge.dst), &edge.weight);
                 }
             }
         }
@@ -232,7 +230,7 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         self.nodes
             .iter()
             .map(|n| {
-                if n.deleted == true {
+                if n.is_empty() {
                     None
                 } else {
                     Some((n.node_fn.clone(),
@@ -409,8 +407,6 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
         // remove from node (TODO: improve)
         self.nodes[from].out_edges.clear();
         self.nodes[from].in_edges.clear();
-        self.nodes[from].deleted = true;
-        self.deleted_nodes += 1;
 
         // 4.
         let edges = &self.nodes[to].in_edges;
@@ -519,7 +515,9 @@ impl<W:Debug+Default+Clone+AddAssign<W>, N:Debug+Default+Clone> GraphBuilder<W, 
 }
 
 #[cfg(test)]
-fn edge_list<W:Debug+Default+Clone+AddAssign<W>,N:Debug+Default+Clone>(builder: &GraphBuilder<W,N>) -> Vec<Vec<(usize, W)>> {
+fn edge_list<W: Debug + Default + Clone + AddAssign<W>, N: Debug + Default + Clone>
+    (builder: &GraphBuilder<W, N>)
+     -> Vec<Vec<(usize, W)>> {
     builder.to_edge_list()
            .into_iter()
            .map(|n| {
@@ -705,7 +703,8 @@ fn test_merge_self_loop() {
 
     let mut nodes = vec![];
     builder.visit_nodes(|i, _| nodes.push(i));
-    assert_eq!(vec![0], nodes);
+    assert!(nodes.is_empty());
+    assert_eq!(0, builder.count_nodes());
 
     let mut edges = vec![];
     builder.visit_edges(|(i, j), _w| edges.push((i, j)));
