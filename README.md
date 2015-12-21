@@ -1,2 +1,2 @@
 # graph-edge-evolution
-Develops a graph by applying certain operations an active edge.
+Develops a graph by applying certain operations on an active edge.
