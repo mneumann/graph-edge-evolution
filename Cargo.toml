@@ -2,6 +2,7 @@
 name = "graph-edge-evolution"
 version = "0.1.0"
 authors = ["Michael Neumann <mneumann@ntecs.de>"]
-
-[dependencies]
-log = "0.3"
+license = "MIT"
+repository = "https://github.com/mneumann/graph-edge-evolution"
+description = "Develops a graph by applying certain operations an active edge"
+keywords = ["graph", "generation"]

@@ -1,9 +1,6 @@
 #![feature(augmented_assignments)]
 #![feature(op_assign_traits)]
 
-#[macro_use]
-extern crate log;
-
 use std::fmt::Debug;
 use std::collections::BTreeMap;
 use std::ops::AddAssign;
