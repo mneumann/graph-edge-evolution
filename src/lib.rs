@@ -499,25 +499,25 @@ impl<W: Debug + Default + Clone + AddAssign<W> + SubAssign<W>, N: Debug + Defaul
 
 // Delete current link
         let cur_edge = self.get_current_edge();
-        let orig_weight = if let Some(edge_idx) = cur_edge {
+        let new_link_in_to_node = if let Some(edge_idx) = cur_edge {
 // delete edge
             let edge = self.edges.remove(&edge_idx).unwrap();
             self.nodes[from].out_edges.retain(|&i| i != edge_idx);
             self.nodes[to].in_edges.retain(|&i| i != edge_idx);
-            edge.weight
-        } else {
-// If current edge does not exist, just change the state.
-            W::default()
-        };
-
 // Add new reversed link
-        let edge_idx = self.create_new_edge_with_weight(to, from, orig_weight);
+            let edge_idx = self.create_new_edge_with_weight(to, from, edge.weight);
+            self.insert_edge(edge_idx)
+        } else {
+// If current edge does not exist, just flip from and to.
+// XXX: reset link_in_to_node?
+            0
+        };
         let new_state = State {
-            link_in_to_node: self.insert_edge(edge_idx),
+            link_in_to_node: new_link_in_to_node,
             to_node: from,
             from_node: to,
-        };
-        self.current_state = new_state;
+         };
+         self.current_state = new_state;
     }
 
 /// Returns the incoming edge index of the target node.
