@@ -722,6 +722,9 @@ fn test_parent() {
 #[test]
 fn test_merge_self_loop() {
     let mut builder: GraphBuilder<f32, usize> = GraphBuilder::new();
+    let empty: Vec<Vec<(usize, f32)>> = vec![vec![]];
+    assert_eq!(empty, edge_list(&builder));
+
     builder.update_edge_weight(0.0, WeightUpdate::Inc);
 
     // start with a single node, self-connected with zero weight
