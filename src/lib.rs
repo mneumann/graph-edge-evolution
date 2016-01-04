@@ -451,17 +451,22 @@ impl<W: Debug + Default + Clone + AddAssign<W> + SubAssign<W>, N: Debug + Defaul
     }
 
 /// Split the current edge in two, and insert a node in the middle of it.
-/// If ```A -> B``` is the current edge, this will result into ```A -> N -> B```
-/// with ```N -> B``` being the next current edge.
-/// There is no A -> B link after this operation, that's why we delete the edge,
+/// If ```x -> y``` is the current edge, this will result into ```x -> m -> y```
+/// with ```m -> y``` being the next current edge.
+/// The existing direct link x -> y after this operation is no longer, that's why we delete the edge,
 /// so that backtracking cannot later make use of it.
+///
+/// x ----- (w_xy*) -----> y
+///       split(w_new)
+/// x ---- (w_xy) ----> m ---- (w_new*) ----> y
+///
     fn split(&mut self, weight: W) {
-        let (from, to) = (self.current_state.from_node, self.current_state.to_node);
+        let (_from, to) = (self.current_state.from_node, self.current_state.to_node);
 
-// create intermediate node
+// create intermediate node ```m```
         let middle_node = self.new_node();
 
-// Move current link from (A,B) to (A,C) (or create a new with weight 0.0).
+// Move current link from (x,y) to (x,m) if it exists
         let cur_edge = self.get_current_edge();
         if let Some(edge_idx) = cur_edge {
 // new to_node is middle_node.
@@ -472,9 +477,7 @@ impl<W: Debug + Default + Clone + AddAssign<W> + SubAssign<W>, N: Debug + Defaul
 // add to incoming edges of new to_node
             self.nodes[middle_node].in_edges.push(edge_idx);
         } else {
-// current edge is virtual. Create a edge with weight 0.0.
-            let edge_idx = self.create_new_edge_with_weight(from, middle_node, W::default());
-            self.insert_edge(edge_idx);
+// current edge is virtual. there is nothing we have to do.
         }
 
 // Add new link from middle_node to `B` with `weight`
@@ -911,9 +914,8 @@ fn test_save_restore2() {
     assert_eq!(true, builder.restore());
     assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)]], edge_list(&builder));
 
-    // there is now a virtual edge between 0 -> 0 with weight 0.0.
     builder.split(0.6);
-    assert_eq!(vec![vec![(1, 0.0), (2, 0.0)], vec![(0, 0.5)], vec![(0, 0.6)]],
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 0.5)], vec![(0, 0.6)]],
                edge_list(&builder));
 }
 
@@ -921,7 +923,7 @@ fn test_save_restore2() {
 fn test_path() {
     let mut builder: GraphBuilder<f32, usize> = GraphBuilder::new();
     builder.split(1.0);
-    assert_eq!(vec![vec![(1, 1.0)], vec![]], edge_list(&builder));
+    assert_eq!(vec![vec![], vec![(0, 1.0)]], edge_list(&builder));
 }
 
 #[test]
