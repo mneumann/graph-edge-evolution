@@ -493,7 +493,7 @@ impl<W: Debug + Default + Clone + AddAssign<W> + SubAssign<W>, N: Debug + Defaul
         self.current_state.link_in_to_node = self.insert_edge(edge_idx);
     }
 
-/// Reverse the current edge.
+/// Reverse the current edge. Reversing a virtual edge, does not create it.
     fn reverse(&mut self) {
         let (from, to) = (self.current_state.from_node, self.current_state.to_node);
 
@@ -960,4 +960,15 @@ fn test_jeffress() {
     assert_eq!(vec![vec![(1, 1.0), (2, 2.0), (3, 3.0)], vec![], vec![], vec![]],
                edge_list(&builder));
 
+}
+
+#[test]
+fn test_reverse_virtual_edge() {
+    let mut builder: GraphBuilder<f32, usize> = GraphBuilder::new();
+    let v: Vec<Vec<(usize, f32)>> = vec![vec![]];
+    assert_eq!(v, edge_list(&builder));
+
+    // reversing a virtual edge should not create it!
+    builder.reverse();
+    assert_eq!(v, edge_list(&builder));
 }
