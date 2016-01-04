@@ -921,9 +921,31 @@ fn test_save_restore2() {
 
 #[test]
 fn test_path() {
+    // Tests creating a path graph
     let mut builder: GraphBuilder<f32, usize> = GraphBuilder::new();
     builder.split(1.0);
     assert_eq!(vec![vec![], vec![(0, 1.0)]], edge_list(&builder));
+    builder.split(2.0);
+    assert_eq!(vec![vec![], vec![(2, 1.0)], vec![(0, 2.0)]],
+               edge_list(&builder));
+    builder.split(3.0);
+    assert_eq!(vec![vec![], vec![(2, 1.0)], vec![(3, 2.0)], vec![(0, 3.0)]],
+               edge_list(&builder));
+}
+
+#[test]
+fn test_circle() {
+    // Tests creating a circle graph
+    let mut builder: GraphBuilder<f32, usize> = GraphBuilder::new();
+    builder.update_edge_weight(0.0, WeightUpdate::Inc);
+    assert_eq!(vec![vec![(0, 0.0)]], edge_list(&builder));
+
+    builder.split(1.0);
+    assert_eq!(vec![vec![(1, 0.0)], vec![(0, 1.0)]], edge_list(&builder));
+
+    builder.split(2.0);
+    assert_eq!(vec![vec![(1, 0.0)], vec![(2, 1.0)], vec![(0, 2.0)]],
+               edge_list(&builder));
 }
 
 #[test]
@@ -932,8 +954,10 @@ fn test_jeffress() {
     builder.output(1.0);
     assert_eq!(vec![vec![(1, 1.0)], vec![]], edge_list(&builder));
     builder.output(2.0);
-    assert_eq!(vec![vec![(1, 1.0), (2, 2.0)], vec![], vec![]], edge_list(&builder));
+    assert_eq!(vec![vec![(1, 1.0), (2, 2.0)], vec![], vec![]],
+               edge_list(&builder));
     builder.output(3.0);
-    assert_eq!(vec![vec![(1, 1.0), (2, 2.0), (3, 3.0)], vec![], vec![], vec![]], edge_list(&builder));
+    assert_eq!(vec![vec![(1, 1.0), (2, 2.0), (3, 3.0)], vec![], vec![], vec![]],
+               edge_list(&builder));
 
 }
