@@ -916,3 +916,22 @@ fn test_save_restore2() {
     assert_eq!(vec![vec![(1, 0.0), (2, 0.0)], vec![(0, 0.5)], vec![(0, 0.6)]],
                edge_list(&builder));
 }
+
+#[test]
+fn test_path() {
+    let mut builder: GraphBuilder<f32, usize> = GraphBuilder::new();
+    builder.split(1.0);
+    assert_eq!(vec![vec![(1, 1.0)], vec![]], edge_list(&builder));
+}
+
+#[test]
+fn test_jeffress() {
+    let mut builder: GraphBuilder<f32, usize> = GraphBuilder::new();
+    builder.output(1.0);
+    assert_eq!(vec![vec![(1, 1.0)], vec![]], edge_list(&builder));
+    builder.output(2.0);
+    assert_eq!(vec![vec![(1, 1.0), (2, 2.0)], vec![], vec![]], edge_list(&builder));
+    builder.output(3.0);
+    assert_eq!(vec![vec![(1, 1.0), (2, 2.0), (3, 3.0)], vec![], vec![], vec![]], edge_list(&builder));
+
+}
