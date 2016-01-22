@@ -6,6 +6,12 @@ use std::collections::BTreeMap;
 use std::ops::{AddAssign, SubAssign};
 use std::ops::Neg;
 
+pub enum EdgeType {
+    Normal,
+    Active,
+    Virtual
+}
+
 pub trait NthEdge: Clone {
     fn edge_index(&self, num_edges: usize, offset: usize) -> Option<usize>;
 }
@@ -238,6 +244,32 @@ impl<W: Debug + Default + Clone + AddAssign<W> + SubAssign<W>, N: Debug + Defaul
                     callback((edge.src, edge.dst), &edge.weight);
                 }
             }
+        }
+    }
+
+    #[inline]
+    pub fn visit_edges_with_type<F: FnMut((usize, usize), &W, EdgeType)>(&self, mut callback: F) {
+        let mut had_active = false;
+        let state = &self.current_state;
+        for (i, node) in self.nodes.iter().enumerate() {
+            if !node.is_empty() {
+                for (ei, in_edge) in node.in_edges.iter().enumerate() {
+                    let edge = &self.edges[in_edge];
+                    debug_assert!(edge.dst == i);
+                    let edge_type = if edge.src == state.from_node && edge.dst == state.to_node && ei == state.link_in_to_node {
+                        assert!(had_active == false);
+                        had_active = true;
+                        EdgeType::Active
+                    } else {
+                        EdgeType::Normal
+                    };
+                    callback((edge.src, edge.dst), &edge.weight, edge_type);
+                }
+            }
+        }
+        if !had_active {
+           let default_weight = W::default();
+           callback((state.from_node, state.to_node), &default_weight, EdgeType::Virtual);
         }
     }
 

@@ -6,3 +6,8 @@ license = "MIT"
 repository = "https://github.com/mneumann/graph-edge-evolution"
 description = "Develops a graph by applying certain operations on an active edge"
 keywords = ["graph", "generation"]
+
+[dev-dependencies]
+
+asexp = "0.2.0"
+grabinput = "^0.1"
