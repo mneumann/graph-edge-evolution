@@ -7,6 +7,27 @@ use graph_edge_evolution::{NthEdgeF, EdgeOperation, GraphBuilder, EdgeType};
 use std::fs::File;
 use std::io::Write;
 
+fn write_dot(graph_no: usize, comment: &str, builder: &GraphBuilder<f32, usize>) {
+    let mut f = File::create(format!("graph_{:02}.dot", graph_no)).unwrap();
+
+    writeln!(&mut f, "// {}", comment);
+
+    writeln!(&mut f, "digraph Graph{:02} {{ node[shape=circle]; rankdir=TB; splines=curved;", graph_no); 
+
+    builder.visit_nodes(|i, _| writeln!(&mut f, "{};", i).unwrap());
+    builder.visit_edges_with_type(|(i, j), _w, edge_type| {
+        let style = match edge_type {
+            EdgeType::Active => "[color=red,penwidth=2]",
+            EdgeType::Virtual => "[color=red,style=dashed,penwidth=2]",  
+            EdgeType::Normal => "[color=black]",
+        };
+
+        writeln!(&mut f, "{} -> {} {};", i, j, style).unwrap()
+    });
+
+    writeln!(&mut f, "}}");
+}
+
 fn main() {
     let s = grabinput::all(std::env::args().nth(1)); 
     let expr = Sexp::parse(&s).unwrap();
@@ -36,26 +57,13 @@ fn main() {
     println!("{:?}", ops);
 
     let mut builder: GraphBuilder<f32, usize> = GraphBuilder::new();
+
+    write_dot(0, "initial", &builder);
+
     for (i, op) in ops.iter().enumerate() {
-        let op = op.clone();
-        println!("{}: {:?}", i, op);
-        builder.apply_operation(op);
-
-        let mut f = File::create(format!("graph_{:02}.dot", i)).unwrap();
-        writeln!(&mut f, "digraph Graph{:02} {{ node[shape=circle]; rankdir=TB; splines=curved;", i); 
-
-        builder.visit_nodes(|i, _| writeln!(&mut f, "{};", i).unwrap());
-        builder.visit_edges_with_type(|(i, j), _w, edge_type| {
-            // penwidth=2
-            let style = match edge_type {
-                EdgeType::Active => "[color=red,penwidth=2]",
-                EdgeType::Virtual => "[color=red,style=dashed,penwidth=2]",  
-                EdgeType::Normal => "[color=black]",
-            };
-
-            writeln!(&mut f, "{} -> {} {};", i, j, style).unwrap()
-        });
-
-        writeln!(&mut f, "}}");
+        let opc = op.clone();
+        println!("{}: {:?}", i+1, opc);
+        builder.apply_operation(opc);
+        write_dot(i+1, &format!("{:?}", op), &builder); 
     }
 }
