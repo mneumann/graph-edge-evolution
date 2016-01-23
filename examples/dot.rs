@@ -42,15 +42,15 @@ fn main() {
         builder.apply_operation(op);
 
         let mut f = File::create(format!("graph_{:02}.dot", i)).unwrap();
-
-        writeln!(&mut f, "digraph {{"); 
+        writeln!(&mut f, "digraph Graph{:02} {{ node[shape=circle]; rankdir=TB; splines=curved;", i); 
 
         builder.visit_nodes(|i, _| writeln!(&mut f, "{};", i).unwrap());
         builder.visit_edges_with_type(|(i, j), _w, edge_type| {
+            // penwidth=2
             let style = match edge_type {
-                EdgeType::Active => "[penwidth=3]",
-                EdgeType::Virtual => "[style=dashed]",  
-                EdgeType::Normal => "[penwidth=1]",
+                EdgeType::Active => "[color=red,penwidth=2]",
+                EdgeType::Virtual => "[color=red,style=dashed,penwidth=2]",  
+                EdgeType::Normal => "[color=black]",
             };
 
             writeln!(&mut f, "{} -> {} {};", i, j, style).unwrap()
